@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import uuid
 from datetime import datetime, timedelta, timezone
 import io
+from flask_cors import CORS
 
 load_dotenv()
 
@@ -14,6 +15,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = Flask(__name__)
+CORS(app)
 
 def generate_admin_token():
     return str(uuid.uuid4())
