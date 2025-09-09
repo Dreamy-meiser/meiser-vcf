@@ -12,6 +12,7 @@ const contactsListDiv = document.getElementById('contactsList');
 const contactsCountSpan = document.getElementById('contactsCount');
 const sessionLinkEl = document.getElementById('sessionLink');
 const copyBtn = document.getElementById('copyBtn');
+const downloadBtn = document.getElementById('downloadVcfBtn');
 
 function showMessage(text, type = 'success') {
   messageDiv.textContent = text;
@@ -94,13 +95,18 @@ async function fetchContacts() {
     contactsListDiv.innerHTML = '';
     contactsListDiv.style.display = 'none';
 
-    document.getElementById('downloadVcfBtn').disabled = sessionExpiryTime > new Date();
+    // FIX: disable until expiry time passes
+    if (sessionExpiryTime && new Date() < sessionExpiryTime) {
+      downloadBtn.disabled = true;
+    } else {
+      downloadBtn.disabled = false;
+    }
   } catch (err) {
     showMessage(err.message, 'error');
   }
 }
 
-document.getElementById('downloadVcfBtn').onclick = () => {
+downloadBtn.onclick = () => {
   window.location.href = `/session/${sessionId}/download`;
 };
 
@@ -113,15 +119,18 @@ copyBtn.onclick = () => {
 };
 
 function startCountdown() {
-  setInterval(() => {
+  const timer = setInterval(() => {
     if (!sessionExpiryTime) return;
     const now = new Date();
     const diff = sessionExpiryTime - now;
+
     if (diff <= 0) {
       sessionExpirySpan.textContent = "Expired";
-      document.getElementById('downloadVcfBtn').disabled = false;
+      downloadBtn.disabled = false; // Enable download after expiry
+      clearInterval(timer);
       return;
     }
+
     const minutes = Math.floor(diff / 60000);
     const seconds = Math.floor((diff % 60000) / 1000);
     sessionExpirySpan.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
