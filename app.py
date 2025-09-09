@@ -65,7 +65,7 @@ def create_session():
 
     try:
         duration_minutes = int(duration_minutes)
-        if duration_minutes < 1:
+        if duration_minutes < 0.01:
             return jsonify({'error': 'duration_minutes must be at least 1'}), 400
     except (ValueError, TypeError):
         return jsonify({'error': 'Invalid duration_minutes'}), 400
