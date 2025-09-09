@@ -1,17 +1,19 @@
-const apiBase = '';
+const API_BASE = 'https://meiser-vcf.onrender.com';
 
 let sessionId = null;
 let adminToken = null;
 let sessionExpiryTime = null;
-let contacts = [];
 
-const messageDiv = document.getElementById('message');
+const phoneInput = document.getElementById('contactPhone');
 const sessionTitleSpan = document.getElementById('sessionTitle');
-const sessionExpirySpan = document.getElementById('countdownTimer');
-const contactsListDiv = document.getElementById('contactsList');
 const contactsCountSpan = document.getElementById('contactsCount');
-const sessionLinkEl = document.getElementById('sessionLink');
-const copyBtn = document.getElementById('copyBtn');
+const contactsListDiv = document.getElementById('contactsList');
+const expiryTimeText = document.getElementById('expiryTimeText');
+
+const sessionLinkContainer = document.getElementById('sessionLinkContainer');
+const sessionLinkSpan = document.getElementById('sessionLink');
+const copyLinkBtn = document.getElementById('copyLinkBtn');
+const messageDiv = document.getElementById('message');
 const downloadBtn = document.getElementById('downloadVcfBtn');
 
 function showMessage(text, type = 'success') {
@@ -23,62 +25,129 @@ function showMessage(text, type = 'success') {
   }, 5000);
 }
 
-document.getElementById('createSessionBtn').onclick = async () => {
-  const name = document.getElementById('sessionName').value.trim();
-  const duration = parseInt(document.getElementById('sessionDuration').value);
+// Fix: safely parse expiry timestamps from Supabase
+function parseExpiry(expiryStr) {
+  return new Date(expiryStr.replace(' ', 'T').replace('+00', 'Z'));
+}
 
-  if (!name) return showMessage('Session name required', 'error');
-  if (!duration || duration < 1) return showMessage('Duration must be at least 1 minute', 'error');
+phoneInput.addEventListener('input', () => {
+  phoneInput.value = phoneInput.value.replace(/\D/g, '').slice(0, 12);
+});
 
+function getSessionIdFromUrl() {
+  const parts = window.location.pathname.split('/');
+  return parts.length === 3 && parts[1] === 'session' ? parts[2] : null;
+}
+
+async function fetchJson(url, options = {}) {
+  const res = await fetch(API_BASE + url, options);
+  let data = null;
   try {
-    const res = await fetch('/create-session', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, duration_minutes: duration }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to create session');
+    data = await res.json();
+  } catch (_) {
+    if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+    return null;
+  }
+  if (!res.ok) throw new Error(data?.error || 'Request failed');
+  return data;
+}
 
-    sessionId = data.session_id;
-    adminToken = data.admin_token;
-    sessionExpiryTime = new Date(data.expiry);
+function formatDateTimeWithTZ(date) {
+  return `${date.toLocaleString()} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`;
+}
+
+async function loadSession(sessionIdFromUrl) {
+  try {
+    const data = await fetchJson(`/api/session/${sessionIdFromUrl}`);
+    if (!data) throw new Error('Session data missing or invalid.');
+
+    sessionId = sessionIdFromUrl;
+    adminToken = null;
 
     document.getElementById('createSessionSection').style.display = 'none';
     document.getElementById('sessionControl').style.display = 'block';
-    sessionTitleSpan.textContent = name;
 
-    const link = `${window.location.origin}/session/${sessionId}`;
-    sessionLinkEl.href = link;
-    sessionLinkEl.textContent = link;
+    sessionTitleSpan.textContent = data.name || 'Unnamed Session';
+    const fullUrl = window.location.origin + `/session/${sessionId}`;
+    sessionLinkSpan.textContent = fullUrl;
+    sessionLinkContainer.style.display = 'flex';
+
+    sessionExpiryTime = parseExpiry(data.expiry);
+    expiryTimeText.textContent = formatDateTimeWithTZ(sessionExpiryTime);
 
     startCountdown();
-    fetchContacts();
+    await fetchContacts();
+    showMessage('Session loaded successfully!');
+  } catch (err) {
+    showMessage(err.message, 'error');
+    document.getElementById('createSessionSection').style.display = 'block';
+    document.getElementById('sessionControl').style.display = 'none';
+  }
+}
+
+document.getElementById('createSessionBtn').onclick = async () => {
+  const name = document.getElementById('sessionName').value.trim();
+  const hours = parseInt(document.getElementById('sessionDuration').value);
+  if (!name) return showMessage('Session name required', 'error');
+  if (!hours || hours < 1) return showMessage('Duration must be at least 1 hour', 'error');
+
+  try {
+    const data = await fetchJson('/api/create-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, duration_minutes: hours * 60 }),
+    });
+
+    sessionId = data.session_id;
+    adminToken = data.admin_token;
+
+    document.getElementById('createSessionSection').style.display = 'none';
+    document.getElementById('sessionControl').style.display = 'block';
+
+    sessionTitleSpan.textContent = name;
+    const fullUrl = window.location.origin + data.session_link;
+    sessionLinkSpan.textContent = fullUrl;
+    sessionLinkContainer.style.display = 'flex';
+
+    sessionExpiryTime = parseExpiry(data.expiry);
+    expiryTimeText.textContent = formatDateTimeWithTZ(sessionExpiryTime);
+
+    window.history.replaceState(null, '', `/session/${sessionId}`);
+
+    startCountdown();
+    await fetchContacts();
     showMessage('Session created successfully!');
   } catch (err) {
     showMessage(err.message, 'error');
   }
 };
 
+copyLinkBtn.onclick = () => {
+  if (!sessionLinkSpan.textContent) return;
+  navigator.clipboard.writeText(sessionLinkSpan.textContent)
+    .then(() => showMessage('Session link copied!'))
+    .catch(() => showMessage('Failed to copy link', 'error'));
+};
+
 document.getElementById('addContactBtn').onclick = async () => {
   const name = document.getElementById('contactName').value.trim();
-  const phone = document.getElementById('contactPhone').value.trim();
+  let phone = phoneInput.value.trim();
 
   if (!name || !phone) return showMessage('Name and phone required', 'error');
-  if (!/^\d{12}$/.test(phone)) return showMessage('Phone must be 12 digits (e.g. 254712345678)', 'error');
+  if (!/^\d{12}$/.test(phone)) return showMessage('Phone must be exactly 12 digits', 'error');
+  phone = `+${phone}`;
 
   try {
-    const res = await fetch(`/session/${sessionId}/add-contact`, {
+    await fetchJson(`/api/session/${sessionId}/add-contact`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, phone }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to add contact');
 
     document.getElementById('contactName').value = '';
-    document.getElementById('contactPhone').value = '';
+    phoneInput.value = '';
     showMessage('Contact added!');
-    fetchContacts();
+    await fetchContacts();
   } catch (err) {
     showMessage(err.message, 'error');
   }
@@ -86,53 +155,39 @@ document.getElementById('addContactBtn').onclick = async () => {
 
 async function fetchContacts() {
   try {
-    const res = await fetch(`/session/${sessionId}/contacts`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to load contacts');
-
-    contacts = data;
-    contactsCountSpan.textContent = contacts.length;
-    contactsListDiv.innerHTML = '';
+    const data = await fetchJson(`/api/session/${sessionId}/contacts`);
+    contactsCountSpan.textContent = Array.isArray(data) ? data.length : 0;
     contactsListDiv.style.display = 'none';
+    contactsListDiv.innerHTML = '';
 
-    // FIX: disable until expiry time passes
-    if (sessionExpiryTime && new Date() < sessionExpiryTime) {
-      downloadBtn.disabled = true;
-    } else {
-      downloadBtn.disabled = false;
-    }
+    // Disable download button until expiry passes
+    downloadBtn.disabled = sessionExpiryTime > new Date();
   } catch (err) {
     showMessage(err.message, 'error');
   }
 }
 
 downloadBtn.onclick = () => {
-  window.location.href = `/session/${sessionId}/download`;
-};
-
-copyBtn.onclick = () => {
-  navigator.clipboard.writeText(sessionLinkEl.href).then(() => {
-    showMessage('Link copied to clipboard!');
-  }).catch(() => {
-    showMessage('Failed to copy link', 'error');
-  });
+  window.location.href = `${API_BASE}/api/session/${sessionId}/download`;
 };
 
 function startCountdown() {
-  const timer = setInterval(() => {
+  setInterval(() => {
     if (!sessionExpiryTime) return;
     const now = new Date();
     const diff = sessionExpiryTime - now;
-
     if (diff <= 0) {
-      sessionExpirySpan.textContent = "Expired";
-      downloadBtn.disabled = false; // Enable download after expiry
-      clearInterval(timer);
+      expiryTimeText.textContent = "Expired";
+      downloadBtn.disabled = false;
       return;
     }
-
     const minutes = Math.floor(diff / 60000);
     const seconds = Math.floor((diff % 60000) / 1000);
-    sessionExpirySpan.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    expiryTimeText.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   }, 1000);
 }
+
+window.addEventListener('DOMContentLoaded', () => {
+  const idFromUrl = getSessionIdFromUrl();
+  if (idFromUrl) loadSession(idFromUrl);
+});
