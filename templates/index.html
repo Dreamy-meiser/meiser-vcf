@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Meiser VCF Generator</title>
   <style>
-    /* ==== DEEP COSMIC GREEN BACKGROUND ==== */
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       background: 
@@ -23,7 +22,6 @@
       overflow-x: hidden;
     }
 
-    /* ==== ANIMATED NEON TITLE ==== */
     h1 {
       color: #00ff88;
       text-shadow: 
@@ -47,22 +45,21 @@
       border-bottom: 2px solid #00ff88;
       padding-bottom: 8px;
       margin-top: 30px;
-      text-shadow: 0 0 5px rgba(0, 255, 136, 0.3);
     }
 
-    /* ==== CYBER-GREEN INPUTS ==== */
-    input {
+    input, button {
       padding: 10px;
       margin: 8px 0;
       width: 100%;
       box-sizing: border-box;
       border-radius: 4px;
-      border: none;
       font-size: 1rem;
+    }
+
+    input {
+      border: 1px solid #00aa55;
       background: rgba(0, 20, 10, 0.7);
       color: #e0ffe0;
-      border: 1px solid #00aa55;
-      transition: all 0.3s ease;
     }
 
     input:focus {
@@ -71,25 +68,17 @@
       box-shadow: 0 0 15px rgba(0, 255, 136, 0.5);
     }
 
-    /* ==== GLOWING NEON BUTTONS ==== */
     button {
-      padding: 10px;
-      margin: 8px 0;
-      width: 100%;
-      box-sizing: border-box;
-      border-radius: 4px;
       border: none;
-      font-size: 1rem;
       background: linear-gradient(to right, #006633, #00aa55);
       color: #000;
       font-weight: bold;
       cursor: pointer;
-      transition: all 0.3s ease;
       text-transform: uppercase;
       letter-spacing: 1px;
     }
 
-    button:hover {
+    button:hover:not(:disabled) {
       background: linear-gradient(to right, #00aa55, #00ff88);
       box-shadow: 0 0 20px rgba(0, 255, 136, 0.7);
       transform: translateY(-2px);
@@ -99,11 +88,8 @@
       background: #333;
       color: #666;
       cursor: not-allowed;
-      box-shadow: none;
-      transform: none;
     }
 
-    /* ==== NEON LABELS ==== */
     label {
       margin-top: 15px;
       display: block;
@@ -111,25 +97,6 @@
       color: #00ff88;
     }
 
-    /* ==== TOXIC CONTACT LIST ==== */
-    #contactsList {
-      display: none;
-      margin-top: 15px;
-      max-height: 150px;
-      overflow-y: auto;
-      background: rgba(0, 30, 15, 0.5);
-      padding: 12px;
-      border-radius: 6px;
-      border: 1px solid #00ff88;
-    }
-
-    #contactsList div {
-      margin-bottom: 8px;
-      border-bottom: 1px solid #00aa55;
-      padding-bottom: 6px;
-    }
-
-    /* ==== PULSING MESSAGE ALERTS ==== */
     #message {
       margin: 15px 0;
       padding: 12px;
@@ -154,7 +121,6 @@
       opacity: 1;
     }
 
-    /* ==== SESSION LINK GLOW BOX ==== */
     #sessionLinkContainer {
       margin: 15px 0 25px 0;
       background: rgba(0, 30, 15, 0.5);
@@ -174,18 +140,6 @@
       overflow: hidden;
       text-overflow: ellipsis;
       font-family: 'Courier New', monospace;
-    }
-
-    /* ==== SCROLLBAR STYLE ==== */
-    ::-webkit-scrollbar {
-      width: 8px;
-    }
-    ::-webkit-scrollbar-track {
-      background: rgba(0, 20, 10, 0.3);
-    }
-    ::-webkit-scrollbar-thumb {
-      background: #00aa55;
-      border-radius: 4px;
     }
   </style>
 </head>
@@ -213,11 +167,11 @@
     <label for="contactName">Contact Name</label>
     <input type="text" id="contactName" placeholder="Monteli Meiser" />
     <label for="contactPhone">Phone Number (e.g. 254797768149)</label>
-    <input type="tel" id="contactPhone" placeholder="254797768149" maxlength="13" />
+    <input type="tel" id="contactPhone" placeholder="254797768149" maxlength="12" />
     <button id="addContactBtn">Add Contact</button>
 
     <h3>Contacts Count: <span id="contactsCount">0</span></h3>
-    <div id="contactsList"></div>
+    <div id="contactsList" style="display:none;"></div>
 
     <button id="downloadVcfBtn" disabled>Download VCF</button>
   </section>
@@ -226,19 +180,21 @@
 
   <script>
     const API_BASE = 'https://meiser-vcf.onrender.com';
-
     let sessionId = null;
     let adminToken = null;
+    let sessionExpiryTime = null;
+    let countdownInterval = null;
+
     const phoneInput = document.getElementById('contactPhone');
     const sessionTitleSpan = document.getElementById('sessionTitle');
     const contactsCountSpan = document.getElementById('contactsCount');
     const contactsListDiv = document.getElementById('contactsList');
     const expiryTimeText = document.getElementById('expiryTimeText');
-
     const sessionLinkContainer = document.getElementById('sessionLinkContainer');
     const sessionLinkSpan = document.getElementById('sessionLink');
     const copyLinkBtn = document.getElementById('copyLinkBtn');
     const messageDiv = document.getElementById('message');
+    const downloadBtn = document.getElementById('downloadVcfBtn');
 
     function showMessage(text, type = 'success') {
       messageDiv.textContent = text;
@@ -250,7 +206,7 @@
     }
 
     function parseExpiry(expiryStr) {
-      return new Date(expiryStr);
+      return new Date(expiryStr.replace(' ', 'T'));
     }
 
     phoneInput.addEventListener('input', () => {
@@ -295,8 +251,10 @@
         sessionLinkSpan.textContent = fullUrl;
         sessionLinkContainer.style.display = 'flex';
 
-        expiryTimeText.textContent = formatDateTimeWithTZ(new Date(data.expiry));
+        sessionExpiryTime = parseExpiry(data.expiry);
+        expiryTimeText.textContent = formatDateTimeWithTZ(sessionExpiryTime);
 
+        startCountdown();
         await fetchContacts();
         showMessage('Session loaded successfully!');
       } catch (err) {
@@ -308,9 +266,10 @@
 
     document.getElementById('createSessionBtn').onclick = async () => {
       const name = document.getElementById('sessionName').value.trim();
-      const hours = parseInt(document.getElementById('sessionDuration').value);
+      let hours = parseFloat(document.getElementById('sessionDuration').value);
+
       if (!name) return showMessage('Session name required', 'error');
-      if (!hours || hours < 1) return showMessage('Duration must be at least 1 hour', 'error');
+      if (!hours || hours < 0.01) hours = 0.01;
 
       try {
         const data = await fetchJson('/api/create-session', {
@@ -329,10 +288,13 @@
         const fullUrl = window.location.origin + data.session_link;
         sessionLinkSpan.textContent = fullUrl;
         sessionLinkContainer.style.display = 'flex';
-        expiryTimeText.textContent = formatDateTimeWithTZ(new Date(data.expiry));
+
+        sessionExpiryTime = parseExpiry(data.expiry);
+        expiryTimeText.textContent = formatDateTimeWithTZ(sessionExpiryTime);
 
         window.history.replaceState(null, '', `/session/${sessionId}`);
 
+        startCountdown();
         await fetchContacts();
         showMessage('Session created successfully!');
       } catch (err) {
@@ -382,9 +344,39 @@
       }
     }
 
-    document.getElementById('downloadVcfBtn').onclick = () => {
-      window.location.href = `${API_BASE}/api/session/${sessionId}/download`;
+    downloadBtn.onclick = () => {
+      if (!downloadBtn.disabled) {
+        window.location.href = `${API_BASE}/api/session/${sessionId}/download`;
+      }
     };
+
+    function startCountdown() {
+      if (countdownInterval) clearInterval(countdownInterval);
+
+      countdownInterval = setInterval(() => {
+        if (!sessionExpiryTime) return;
+        const now = new Date();
+        const diff = sessionExpiryTime - now;
+
+        if (diff <= 0) {
+          expiryTimeText.textContent = "Expired – you can now download!";
+          downloadBtn.disabled = false;
+          downloadBtn.style.backgroundColor = "green";
+          downloadBtn.style.cursor = "pointer";
+          showMessage("Session expired. Download ready!", "success");
+          clearInterval(countdownInterval);
+          return;
+        }
+
+        const minutes = Math.floor(diff / 60000);
+        const seconds = Math.floor((diff % 60000) / 1000);
+        expiryTimeText.textContent = `${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}`;
+
+        downloadBtn.disabled = true;
+        downloadBtn.style.backgroundColor = "gray";
+        downloadBtn.style.cursor = "not-allowed";
+      }, 1000);
+    }
 
     window.addEventListener('DOMContentLoaded', () => {
       const idFromUrl = getSessionIdFromUrl();
