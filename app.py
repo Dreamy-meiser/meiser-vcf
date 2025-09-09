@@ -64,7 +64,7 @@ def create_session():
         return jsonify({'error': 'Missing name or duration_minutes'}), 400
 
     try:
-        duration_minutes = int(duration_minutes)
+        duration_minutes = float(duration_minutes)
         if duration_minutes < 0.01:
             return jsonify({'error': 'duration_minutes must be at least 1'}), 400
     except (ValueError, TypeError):
