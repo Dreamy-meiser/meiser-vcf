@@ -149,7 +149,7 @@
     let phone = phoneInput.value.trim();
 
     if (!name || !phone) return showMessage('Name and phone required', 'error');
-    if (!/^\d{12}$/.test(phone)) return showMessage('Phone must be exactly 12 digits', 'error');
+    if (!/^\d{12,13}$/.test(phone)) return showMessage('Phone must be exactly 12 or 13 digits', 'error');
     phone = `+${phone}`;
 
     try {
