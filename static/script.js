@@ -31,7 +31,7 @@
   }
 
   phoneInput.addEventListener('input', () => {
-    phoneInput.value = phoneInput.value.replace(/\D/g, '').slice(0, 12);
+    phoneInput.value = phoneInput.value.replace(/\D/g, '').slice(0, 13);
   });
 
   function getSessionIdFromUrl() {
